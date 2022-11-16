@@ -1,0 +1,29 @@
+<script>
+
+var keys;
+	
+window.sodium = {
+	onload: function (sodium) {
+		keys = sodium.crypto_box_keypair();
+		console.log("public key: "+window.btoa(keys.publicKey));
+		console.log("private key: "+window.btoa(keys.privateKey));
+		
+		encrypt = boxSeal("Hi");
+		console.log(encrypt);
+		
+		decrypt = boxSealOpen(encrypt);
+		console.log(decrypt);
+	}
+};
+
+function boxSeal(message) {
+    return sodium.to_base64(sodium.crypto_box_seal(message, keys.publicKey));
+}
+
+function boxSealOpen(message){
+    return sodium.to_string(sodium.crypto_box_seal_open(sodium.from_base64(message), keys.publicKey, keys.privateKey));
+}
+
+</script>
+
+<script src="sodium.js" async></script>

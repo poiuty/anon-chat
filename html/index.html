@@ -1,0 +1,170 @@
+<style>
+	#text {
+	  display:inline-block;
+	  width:90%;
+	  resize:none;
+	}
+	#submit, #searchAnon, #wsClose {
+	  display:inline-block;
+	  width:10%;
+	  margin: 0 5px;
+	}
+</style>
+
+<script>
+	var keys;
+	window.sodium = {
+		onload: function (sodium) {
+			keys = sodium.crypto_box_keypair();
+			//console.log("public key: "+sodium.to_base64(keys.publicKey));
+			//console.log("private key: "+sodium.to_base64(keys.privateKey));
+			startWS();
+		}
+	};
+	function boxSeal(message) {
+		return sodium.to_base64(sodium.crypto_box_seal(message, keys.anonKey));
+	}
+
+	function boxSealOpen(message){
+		return sodium.to_string(sodium.crypto_box_seal_open(sodium.from_base64(message), keys.publicKey, keys.privateKey));
+	}
+</script>
+<script src="sodium.js" async></script>
+
+<script>
+
+var sock;
+var lock_send = false;
+var token = makeid(12);
+
+function dScroll() {
+	objDiv = document.getElementById("mesBox");
+	objDiv.scrollTop = objDiv.scrollHeight;
+}
+
+function makeid(length) {
+    var result           = '';
+    var characters       = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    var charactersLength = characters.length;
+    for ( var i = 0; i < length; i++ ) {
+        result += characters.charAt(Math.floor(Math.random() * charactersLength));
+    }
+    return result;
+}
+
+function sendWS() {
+	msg = document.getElementById("text").value;
+	if(msg.length == 0 || lock_send || document.getElementById("searchAnon").value != "Exit"){
+		return;
+	}
+	document.getElementById("text").value = "";
+	document.getElementById("mesBox").appendChild(document.createTextNode("You: "+msg+"\n"));
+	dScroll();
+	sock.send(JSON.stringify({type:"chat", message: boxSeal(msg)}));
+}
+
+function sendSearch() {
+	if(document.getElementById("searchAnon").value == "Search"){
+		sock.send(JSON.stringify({type:"system", message:"search"}));
+		setTimeout(sendSearch, 1000);
+	}
+}
+
+function searchAnon() {
+	switch(document.getElementById("searchAnon").value) {
+		case 'Start':
+			document.getElementById("searchAnon").value = "Search";
+			sendSearch();
+		break;
+		case 'Search':
+			document.getElementById("searchAnon").value = "Start";
+			sock.send(JSON.stringify({type:"system", message:"stop_search"}));
+		break;
+		case 'Exit':
+			lock_send = false;
+			document.getElementById("searchAnon").value = "Start";
+			document.getElementById("mesBox").appendChild(document.createTextNode("System: talk is over\n"));
+			sock.send(JSON.stringify({type:"system", message:"exit"}));
+		break;
+	}
+}
+
+function wsClose() {
+	sock.close();
+}
+
+function startWS() {
+	sock = new WebSocket('wss://poiuty.com/ws/');
+	sock.onopen = function () {
+		console.log('websocket open');
+		sock.send(JSON.stringify({type:"register", token: token, key: sodium.to_base64(keys.publicKey) }));
+	};
+	sock.onmessage = function (evt) {
+		obj = JSON.parse(evt.data);
+		if(obj.type == "search") {
+			document.getElementById("searchAnon").value = "Exit";
+			document.getElementById("mesBox").appendChild(document.createTextNode("Start chat with Anon, publicKey: "+obj.message+"\n"));
+			keys.anonKey = sodium.from_base64(obj.message);
+			sock.send(JSON.stringify({type:"system", message: "update"}));
+			return;
+		}
+		
+		if(obj.type == "system" && obj.message == "exit") {
+			document.getElementById("mesBox").appendChild(document.createTextNode("System: talk is over\n"));
+			document.getElementById("searchAnon").value = "Start";
+			return;
+		}
+		
+		if(obj.type == "system" && obj.message == "disconnect") {
+			lock_send = true;
+			document.getElementById("mesBox").appendChild(document.createTextNode("System: anon disconnect, send message disabled\n"));
+			return;
+		}
+		
+		if(obj.type == "system" && obj.message == "reconnect") {
+			lock_send = false;
+			document.getElementById("mesBox").appendChild(document.createTextNode("System: anon reconnected, send message enable\n"));
+			return;
+		}
+		
+		
+		if(obj.type == "system" && obj.message == "ping") {
+			sock.send(JSON.stringify({type:"system", message: "pong"}));
+			return;
+		}
+		
+		if(obj.type == "chat") {
+			document.getElementById("mesBox").appendChild(document.createTextNode("Anon: "+boxSealOpen(obj.message)+"\n"));
+			dScroll();
+			return;
+		}
+			
+		document.getElementById("mesBox").appendChild(document.createTextNode("Anon: "+evt.data+"\n"));
+	};
+	sock.onclose = function (e) {
+		console.log('Socket is closed. Reconnect will be attempted in 1 second.', e.code);
+		setTimeout(function () {
+			startWS();
+		}, 1000);
+	};
+}
+
+
+
+</script>
+
+<div id="mesBox" style="height: 50%; overflow-y: auto; white-space: pre-wrap; word-break: break-all;"></div>
+
+<br/>
+
+<div style="display:flex;">
+<input id="text" type="text" placeholder="Your message" />
+<input id="submit" type="submit" onclick="sendWS()" value="Send" />
+<input id="searchAnon" type="submit" onclick="searchAnon()" value="Start" />
+<input id="wsClose" type="submit" onclick="wsClose()" value="Close WebSocket" />
+</div>
+
+
+
+	
+
